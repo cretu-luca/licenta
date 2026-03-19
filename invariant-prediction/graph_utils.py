@@ -4,7 +4,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 
-def draw_one_graph(ax, edges, label=None, node_emb=None, layout=None, special_color=False):
+def draw_one_graph(ax, edges, label=None, node_emb=None, layout=None,
+                   special_color=False, pos=None):
     """draw a graph with networkx based on adjacency matrix (edges)
     graph labels could be displayed as a title for each graph
     node_emb could be displayed in colors
@@ -12,7 +13,12 @@ def draw_one_graph(ax, edges, label=None, node_emb=None, layout=None, special_co
     graph = nx.Graph()
     edges = zip(edges[0], edges[1])
     graph.add_edges_from(edges)
-    node_pos = layout(graph)
+    if layout == 'custom':
+      node_pos = pos
+    elif layout == 'tree':
+      node_pos=nx.nx_agraph.graphviz_layout(graph, prog='dot')
+    else:
+      node_pos = layout(graph)
     #add colors according to node embeding
     if (node_emb is not None) or special_color:
         color_map = []
@@ -64,7 +70,8 @@ def gallery(graphs, labels=None, node_emb=None, special_color=False, max_graphs=
 
 
     for i in range(num_graphs):
-        draw_one_graph(axes[i], graphs[i].edge_index.numpy(), labels[i], node_emb[i], layout, special_color)
+        draw_one_graph(axes[i], graphs[i].edge_index.numpy(), labels[i], node_emb[i], layout, special_color,
+                            pos=graphs[i].pos)
         if labels[i] != " ":
             axes[i].set_title(f"Target: {labels[i]}", fontsize=28)
         axes[i].set_axis_off()

@@ -1,17 +1,27 @@
+import copy
 import torch
 
 def update_stats(training_stats, epoch_stats):
-    """Append epoch_stats to a list of dicts; init with None."""
-    if training_stats is None:
-        return [epoch_stats]
-    return training_stats + [epoch_stats]
-
-def train_pyg(loader, model, optimiser, epoch, loss_fct, device):
-    """ Train model for one epoch
+    """ Store metrics along the training
+    Args:
+      epoch_stats: dict containg metrics about one epoch
+      training_stats: dict containing lists of metrics along training
+    Returns:
+      updated training_stats
     """
+    if training_stats is None:
+        training_stats = {}
+        for key in epoch_stats.keys():
+            training_stats[key] = []
+    for key,val in epoch_stats.items():
+        training_stats[key].append(val)
+    return training_stats
+
+def train_pyg(loader, model, optimiser, epoch, loss_fct, DEVICE="cpu"):
     model.train()
+    total_loss = 0
     for batch in loader:
-        batch = batch.to(device)
+        batch = batch.to(DEVICE)
         optimiser.zero_grad()
 
         y_hat = model(batch)
@@ -19,15 +29,16 @@ def train_pyg(loader, model, optimiser, epoch, loss_fct, device):
 
         loss.backward()
         optimiser.step()
-    return loss.item()
+        total_loss += loss.item() * batch.num_graphs
+    return total_loss / len(loader.dataset)
 
-def evaluate_pyg(loader, model, loss_fct, device):
+def evaluate_pyg(loader, model, loss_fct, DEVICE="cpu"):
     """ Evaluate model on dataset
     """
     model.eval()
     loss_eval = 0
     for batch in loader:
-        batch = batch.to(device)
+        batch = batch.to(DEVICE)
         with torch.no_grad():
             y_hat = model(batch)
             loss = loss_fct(y_hat, batch.y)
@@ -37,37 +48,48 @@ def evaluate_pyg(loader, model, loss_fct, device):
     return loss_eval
 
 def run_exp_pyg(model, train_loader, val_loader, test_loader, loss_fct,
-                    lr=0.001, num_epochs=100, device=torch.device('cpu')):
-    """ Train the model for NUM_EPOCHS epochs
-    """
+                    lr=0.001, num_epochs=100, patience=20, DEVICE="cpu"):
     print("\nModel architecture:")
     print(model)
 
-    model = model.to(device)
+    model = model.to(DEVICE)
 
-    #Instantiatie our optimiser
     optimiser = torch.optim.Adam(model.parameters(), lr=lr)
     training_stats = None
 
-    #initial evaluation (before training)
-    val_loss = evaluate_pyg(val_loader, model, loss_fct, device)
-    train_loss = evaluate_pyg(train_loader, model, loss_fct, device)
-    epoch_stats = {'train_loss': train_loss, 'val_loss': val_loss, 'epoch':0}
+    val_loss = evaluate_pyg(val_loader, model, loss_fct, DEVICE)
+    train_loss = evaluate_pyg(train_loader, model, loss_fct, DEVICE)
+    epoch_stats = {'train_loss': train_loss, 'val_loss': val_loss, 'epoch': 0}
     training_stats = update_stats(training_stats, epoch_stats)
+
+    best_val_loss = val_loss
+    best_model_state = copy.deepcopy(model.state_dict())
+    epochs_without_improvement = 0
 
     print("\nStart training:")
     for epoch in range(num_epochs):
         train_loss = train_pyg(train_loader, model, optimiser, epoch,
-                                        loss_fct, device)
-        val_loss = evaluate_pyg(val_loader, model, loss_fct, device)
+                                        loss_fct, DEVICE)
+        val_loss = evaluate_pyg(val_loader, model, loss_fct, DEVICE)
         print(f"[Epoch {epoch+1}]",
                     f"train loss: {train_loss:.3f} val loss: {val_loss:.3f}",
               )
-        # store the loss and the computed metric for the final plot
         epoch_stats = {'train_loss': train_loss, 'val_loss': val_loss,
-                      'epoch':epoch+1}
+                      'epoch': epoch+1}
         training_stats = update_stats(training_stats, epoch_stats)
 
-    test_loss = evaluate_pyg(test_loader, model,  loss_fct, device)
-    print(f"Done! Test loss: {test_loss:.3f}")
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_model_state = copy.deepcopy(model.state_dict())
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+
+        if epochs_without_improvement >= patience:
+            print(f"Early stopping at epoch {epoch+1} (no improvement for {patience} epochs)")
+            break
+
+    model.load_state_dict(best_model_state)
+    test_loss = evaluate_pyg(test_loader, model, loss_fct, DEVICE)
+    print(f"Done! Best val loss: {best_val_loss:.3f} | Test loss: {test_loss:.3f}")
     return training_stats
