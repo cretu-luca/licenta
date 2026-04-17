@@ -1,0 +1,5 @@
+name: genus_3d
+col: Genus-3D
+num_classes: 5
+min_val: 1
+type: multiclass

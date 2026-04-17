@@ -1,0 +1,5 @@
+name: rasmussen_s
+col: Rasmussen <i>s</i>
+num_classes: 19
+min_val: -8
+type: multiclass

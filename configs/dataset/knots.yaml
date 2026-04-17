@@ -1,0 +1,6 @@
+name: knots
+csv_path: ${paths.data_dir}/knotinfo.csv
+split: [0.8, 0.1, 0.1]
+split_seed: 0
+augmented: false
+limit: null

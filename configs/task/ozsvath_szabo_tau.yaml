@@ -1,0 +1,5 @@
+name: ozsvath_szabo_tau
+col: Ozsvath-Szabo <i>tau</i>
+num_classes: 10
+min_val: -4
+type: multiclass

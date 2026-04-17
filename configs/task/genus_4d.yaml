@@ -1,0 +1,5 @@
+name: genus_4d
+col: Genus-4D
+num_classes: 6
+min_val: 0
+type: multiclass

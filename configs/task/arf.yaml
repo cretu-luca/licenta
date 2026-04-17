@@ -1,0 +1,5 @@
+name: arf
+col: Arf Invariant
+num_classes: 2
+min_val: 0
+type: binary

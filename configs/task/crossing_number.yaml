@@ -1,0 +1,5 @@
+name: crossing_number
+col: Crossing Number
+num_classes: 11
+min_val: 3
+type: multiclass

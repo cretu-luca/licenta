@@ -1,0 +1,6 @@
+name: gin
+kind: graph
+_target_: src.models.graph.KnotGIN.KnotGIN
+hidden_dim: 128
+num_classes: ${task.num_classes}
+num_layers: 4

@@ -1,0 +1,30 @@
+defaults:
+  - _self_
+  - dataset: knots
+  - model: cin
+  - task: alternating
+  - trainer: supervised
+  - experiment: null
+
+experiment_name: default
+seed: 42
+
+paths:
+  root: ${oc.env:PWD}
+  data_dir: ${paths.root}/data
+  output_dir: ${paths.root}/outputs
+  run_dir: ${paths.output_dir}/${experiment_name}/${task.name}/${model.name}/seed=${seed}
+  aggregate_csv: ${paths.output_dir}/${experiment_name}/aggregate.csv
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${experiment_name}/${task.name}/${model.name}/seed=${seed}
+  sweep:
+    dir: outputs/${experiment_name}
+    subdir: ${task.name}/${model.name}/seed=${seed}
+  job_logging:
+    formatters:
+      simple:
+        format: "[%(asctime)s][%(name)s][%(levelname)s] %(message)s"

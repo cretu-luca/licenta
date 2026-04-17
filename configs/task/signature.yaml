@@ -1,0 +1,5 @@
+name: signature
+col: Signature
+num_classes: 19
+min_val: -10
+type: multiclass

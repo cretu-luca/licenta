@@ -1,0 +1,5 @@
+name: unknotting_number
+col: Unknotting Number
+num_classes: 5
+min_val: 1
+type: multiclass

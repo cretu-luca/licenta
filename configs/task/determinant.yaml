@@ -1,0 +1,5 @@
+name: determinant
+col: Determinant
+num_classes: 663
+min_val: 1
+type: multiclass
