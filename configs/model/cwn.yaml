@@ -1,0 +1,35 @@
+_target_: topobench.model.TBModel
+name: cwn
+hidden_dim: 64
+n_layers: 4
+
+feature_encoder:
+  _target_: topobench.nn.encoders.all_cell_encoder.AllCellFeatureEncoder
+  in_channels: [4, 1, 1]
+  out_channels: ${model.hidden_dim}
+  proj_dropout: 0.0
+
+backbone:
+  _target_: topomodelx.nn.cell.cwn.CWN
+  in_channels_0: ${model.hidden_dim}
+  in_channels_1: ${model.hidden_dim}
+  in_channels_2: ${model.hidden_dim}
+  hid_channels: ${model.hidden_dim}
+  n_layers: ${model.n_layers}
+
+backbone_wrapper:
+  _target_: topobench.nn.wrappers.cell.cwn_wrapper.CWNWrapper
+  _partial_: true
+  out_channels: ${model.hidden_dim}
+  num_cell_dimensions: 3
+
+readout:
+  _target_: topobench.nn.readouts.propagate_signal_down.PropagateSignalDown
+  readout_name: PropagateSignalDown
+  num_cell_dimensions: 3
+  hidden_dim: ${model.hidden_dim}
+  out_channels: ${task.num_classes}
+  task_level: graph
+  pooling_type: sum
+
+compile: false

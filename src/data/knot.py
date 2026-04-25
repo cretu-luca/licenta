@@ -1,3 +1,12 @@
+"""SnapPy → PyG: parse PD codes into the subdivided knot-diagram CW complex.
+
+Domain-specific code that no library can replace. Emits a plain `Data(x,
+edge_index, faces, y, num_crossings, ...)`. CW-connectivity tensors
+(`x_0`, `incidence_*`, `down_laplacian_*`, ...) are produced downstream by
+`src.transforms.graph2cell_face_lifting.Graph2CellFaceLifting`.
+"""
+from __future__ import annotations
+
 import ast
 from dataclasses import dataclass
 
@@ -5,8 +14,6 @@ import numpy as np
 import snappy
 import torch
 from torch_geometric.data import Data
-
-import toponetx as tnx
 
 NODE_TYPE_CROSSING_NEG = 0
 NODE_TYPE_CROSSING_POS = 1
@@ -28,20 +35,6 @@ class KnotDiagramTopology:
     """Combinatorial data of a subdivided knot-diagram CW complex.
 
     Node layout: [crossings (0..n-1), midpoints (n..n+2n-1)].
-
-    Attributes
-    ----------
-    node_types : (num_nodes,) int64
-        One of NODE_TYPE_*.
-    edges : (num_edges, 2) int64
-        Undirected edges of the subdivided 1-skeleton, one row per undirected edge.
-        Each arc contributes exactly two rows: (crossing_a, midpoint) and
-        (midpoint, crossing_b).
-    faces : list of list of int
-        Each face is a cyclic sequence of node indices alternating crossing,
-        midpoint, crossing, midpoint, ..., suitable for
-        `CellComplex.add_cell(face, rank=2)`.
-    num_crossings : int
     """
 
     node_types: np.ndarray
@@ -52,7 +45,6 @@ class KnotDiagramTopology:
     @property
     def num_nodes(self) -> int:
         return int(self.node_types.shape[0])
-
 
     @classmethod
     def from_pd(cls, pd_notation: str) -> "KnotDiagramTopology":
@@ -66,9 +58,6 @@ class KnotDiagramTopology:
         link = snappy.Link(pd_list)
         crossings = link.crossings
 
-        # Degenerate case: the 0-crossing unknot. No arcs, no faces in the usual sense.
-        # Represent it as a single isolated node. Batch collation works with empty
-        # edge_index if num_nodes is set.
         if len(crossings) == 0:
             return cls(
                 node_types=np.array([NODE_TYPE_UNKNOT], dtype=np.int64),
@@ -83,8 +72,6 @@ class KnotDiagramTopology:
             for c in crossings
         ]
 
-        # Allocate a midpoint per arc. Traverse in a deterministic order so that
-        # indices are stable across runs.
         arc_to_midpoint: dict[frozenset, int] = {}
         arc_endpoints: dict[frozenset, tuple[int, int]] = {}
         next_midpoint_idx = num_crossings
@@ -99,32 +86,25 @@ class KnotDiagramTopology:
                     next_midpoint_idx += 1
                     node_types.append(NODE_TYPE_MIDPOINT)
 
-        # Build the edge list: each arc contributes two edges (crossing -- midpoint,
-        # midpoint -- other_crossing). Self-loop arcs (same crossing both ends) still
-        # produce two well-defined edges through the unique midpoint.
         edges: list[tuple[int, int]] = []
         for key, midpoint in arc_to_midpoint.items():
             crossing_a, crossing_b = arc_endpoints[key]
             edges.append((crossing_a, midpoint))
             edges.append((midpoint, crossing_b))
 
-        # Extract faces from SnapPy's planar embedding. Each face is a cyclic list of
-        # CrossingStrands; each strand (c, p) leaves crossing c through port p along
-        # some arc, landing at strand.opposite(). The face boundary in the subdivided
-        # graph alternates: crossing -> midpoint -> next crossing -> midpoint -> ...
         faces: list[list[int]] = []
         for strand_cycle in link.faces():
             face_boundary: list[int] = []
             for strand in strand_cycle:
-                opposite = strand.opposite()
+                c = strand.crossing
+                e = strand.strand_index
+                next_port = (e + 1) % 4
+                neighbor, neighbor_port = c.adjacent[next_port]
                 arc_key_here = _arc_key(
-                    strand.crossing.label,
-                    strand.strand_index,
-                    opposite.crossing.label,
-                    opposite.strand_index,
+                    c.label, next_port, neighbor.label, neighbor_port
                 )
                 midpoint = arc_to_midpoint[arc_key_here]
-                face_boundary.append(strand.crossing.label)
+                face_boundary.append(c.label)
                 face_boundary.append(midpoint)
             faces.append(face_boundary)
 
@@ -135,8 +115,13 @@ class KnotDiagramTopology:
             num_crossings=num_crossings,
         )
 
-
-    def topology_to_pyg_data(self, y: torch.Tensor | None = None) -> Data:
+    def topology_to_pyg_data(
+        self,
+        y: torch.Tensor | None = None,
+        knot_name: str | None = None,
+        pd_notation: str | None = None,
+    ) -> Data:
+        """Emit a plain PyG Data; CW connectivity is built later by the lifting."""
         if self.edges.shape[0] > 0:
             src = np.concatenate([self.edges[:, 0], self.edges[:, 1]])
             dst = np.concatenate([self.edges[:, 1], self.edges[:, 0]])
@@ -146,19 +131,16 @@ class KnotDiagramTopology:
 
         x = torch.from_numpy(self.node_types).to(torch.long).unsqueeze(-1)
 
-        return Data(x=x, edge_index=edge_index, y=y, num_nodes=self.num_nodes)
-
-
-    def topology_to_cell_complex(self) -> tnx.CellComplex:
-        cell_complex = tnx.CellComplex()
-
-        for node_idx in range(self.num_nodes):
-            cell_complex.add_node(node_idx)
-
-        for u, v in self.edges:
-            cell_complex.add_edge(int(u), int(v))
-
-        for face in self.faces:
-            cell_complex.add_cell(face, rank=2)
-
-        return cell_complex
+        data = Data(
+            x=x,
+            edge_index=edge_index,
+            y=y,
+            num_nodes=self.num_nodes,
+        )
+        data.faces = [list(map(int, face)) for face in self.faces]
+        data.num_crossings = torch.tensor([int(self.num_crossings)], dtype=torch.long)
+        if knot_name is not None:
+            data.knot_name = str(knot_name)
+        if pd_notation is not None:
+            data.pd_notation = str(pd_notation)
+        return data

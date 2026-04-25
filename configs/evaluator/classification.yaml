@@ -1,0 +1,5 @@
+_target_: topobench.evaluator.evaluator.TBEvaluator
+task: classification
+task_level: graph
+num_classes: ${task.num_classes}
+metrics: [accuracy, precision, recall]

@@ -1,0 +1,24 @@
+# @package _global_
+defaults:
+  - override /hydra/sweeper: optuna
+
+optimized_metric: val/accuracy
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: ${seed}
+      n_startup_trials: 5
+    direction: maximize
+    study_name: ${experiment_name}_${task.name}_${model.name}
+    storage: null
+    n_trials: 25
+    n_jobs: 1
+    params:
+      model.hidden_dim: choice(32, 64, 128)
+      model.n_layers: range(1, 5)
+      optimizer.parameters.lr: choice(0.01, 0.001)
+      dataset.dataloader_params.batch_size: choice(64, 128, 256)

@@ -1,6 +1,0 @@
-name: gcn
-kind: graph
-_target_: src.models.graph.KnotGCN.KnotGCN
-hidden_dim: 128
-num_classes: ${task.num_classes}
-num_layers: 4

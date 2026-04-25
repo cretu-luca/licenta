@@ -1,0 +1,10 @@
+_target_: topobench.optimizer.TBOptimizer
+optimizer_id: Adam
+parameters:
+  lr: 0.001
+  weight_decay: 1.0e-4
+scheduler:
+  scheduler_id: StepLR
+  scheduler_params:
+    step_size: 50
+    gamma: 0.5

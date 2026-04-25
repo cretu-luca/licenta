@@ -1,20 +1,30 @@
 defaults:
   - _self_
   - dataset: knots
-  - model: cin
   - task: alternating
-  - trainer: supervised
-  - experiment: null
+  - model: cwn
+  - loss: classification
+  - optimizer: adam
+  - evaluator: classification
+  - trainer: lightning
+  - callbacks: default
+  - logger: tensorboard
+  - split: five_random
+  - augmentation: none
+  - hparams_search: null
 
-experiment_name: default
+experiment_name: tb_run
 seed: 42
+
+train: true
+test: true
+optimized_metric: val/accuracy
 
 paths:
   root: ${oc.env:PWD}
   data_dir: ${paths.root}/data
   output_dir: ${paths.root}/outputs
   run_dir: ${paths.output_dir}/${experiment_name}/${task.name}/${model.name}/seed=${seed}
-  aggregate_csv: ${paths.output_dir}/${experiment_name}/aggregate.csv
 
 hydra:
   job:
@@ -24,7 +34,3 @@ hydra:
   sweep:
     dir: outputs/${experiment_name}
     subdir: ${task.name}/${model.name}/seed=${seed}
-  job_logging:
-    formatters:
-      simple:
-        format: "[%(asctime)s][%(name)s][%(levelname)s] %(message)s"

@@ -1,6 +1,35 @@
+_target_: topobench.model.TBModel
 name: gin
-kind: graph
-_target_: src.models.graph.KnotGIN.KnotGIN
-hidden_dim: 128
-num_classes: ${task.num_classes}
-num_layers: 4
+hidden_dim: 64
+n_layers: 2
+
+feature_encoder:
+  _target_: topobench.nn.encoders.all_cell_encoder.AllCellFeatureEncoder
+  in_channels: [4]
+  out_channels: ${model.hidden_dim}
+  proj_dropout: 0.0
+
+backbone:
+  _target_: torch_geometric.nn.models.GIN
+  in_channels: ${model.hidden_dim}
+  hidden_channels: ${model.hidden_dim}
+  num_layers: ${model.n_layers}
+  dropout: 0.0
+  act: relu
+
+backbone_wrapper:
+  _target_: topobench.nn.wrappers.graph.gnn_wrapper.GNNWrapper
+  _partial_: true
+  out_channels: ${model.hidden_dim}
+  num_cell_dimensions: 1
+
+readout:
+  _target_: topobench.nn.readouts.NoReadOut
+  readout_name: NoReadOut
+  num_cell_dimensions: 1
+  hidden_dim: ${model.hidden_dim}
+  out_channels: ${task.num_classes}
+  task_level: graph
+  pooling_type: mean
+
+compile: false

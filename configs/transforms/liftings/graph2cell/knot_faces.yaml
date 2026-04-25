@@ -1,0 +1,3 @@
+_target_: src.transforms.graph2cell_face_lifting.Graph2CellFaceLifting
+complex_dim: 2
+signed: false

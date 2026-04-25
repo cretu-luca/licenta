@@ -1,0 +1,5 @@
+_target_: topobench.loss.loss.TBLoss
+dataset_loss:
+  task: classification
+  loss_type: cross_entropy
+modules_losses: {}

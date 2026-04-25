@@ -1,0 +1,6 @@
+enabled: false
+n_diagrams: 0
+tries: 0
+method: backtrack
+include_mirror: false
+aug_seed: 0
