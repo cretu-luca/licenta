@@ -9,6 +9,7 @@ loader:
     target_column: ${task.col}
     label_shift: ${task.min_val}
     num_classes: ${task.num_classes}
+    target_dtype: ${oc.select:task.target_dtype,long}
     limit: null
     strict: false
     force_reload: false

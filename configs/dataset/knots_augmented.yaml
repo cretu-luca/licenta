@@ -6,11 +6,12 @@ loader:
   _target_: src.data.loader.KnotAugmentedDatasetLoader
   parameters:
     data_dir: ${paths.data_dir}
-    data_name: knots_aug_${task.name}_n${augmentation.n_diagrams}_t${augmentation.tries}_${augmentation.method}_mirror${augmentation.include_mirror}_seed${augmentation.aug_seed}
+    data_name: knots_augmented_${task.name}
     csv_path: ${paths.data_dir}/knotinfo.csv
     target_column: ${task.col}
     label_shift: ${task.min_val}
     num_classes: ${task.num_classes}
+    target_dtype: ${oc.select:task.target_dtype,long}
     limit: null
     strict: false
     force_reload: false

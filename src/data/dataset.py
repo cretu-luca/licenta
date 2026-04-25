@@ -27,23 +27,49 @@ def _slug(s: str) -> str:
     return s.strip("_") or "target"
 
 
-def _coerce_label(raw: Any, label_shift: int) -> torch.Tensor | None:
-    """Y/N -> {1,0}; numeric -> int after shift. Returns None on failure."""
+_VALID_TARGET_DTYPES = {"long", "float"}
+
+
+def _coerce_label(
+    raw: Any, label_shift: float, target_dtype: str = "long"
+) -> torch.Tensor | None:
+    """Coerce a CSV cell to the requested tensor dtype.
+
+    `target_dtype` is fixed at config time per task semantics:
+      - "long"  : classification target (binary or multiclass). Y/N strings
+                  map to 1/0; numeric strings must be integer-valued (else
+                  the row is dropped).
+      - "float" : regression target. Y/N strings raise; numeric strings are
+                  cast directly with `label_shift` subtracted.
+
+    Returns None on un-coercible / sentinel values; the caller then drops
+    the row.
+    """
+    if target_dtype not in _VALID_TARGET_DTYPES:
+        raise ValueError(
+            f"target_dtype must be one of {_VALID_TARGET_DTYPES}, got {target_dtype!r}"
+        )
     if raw is None:
         return None
     s = str(raw).strip()
     if s == "" or s.lower() in {"nan", "none", "null", "d.n.e.", "dne", "unknown", "?"}:
         return None
     if s in {"Y", "y", "Yes", "yes", "True", "true"}:
+        if target_dtype == "float":
+            raise ValueError("Y/N target encountered with target_dtype='float'")
         return torch.tensor(int(1) - int(label_shift), dtype=torch.long)
     if s in {"N", "n", "No", "no", "False", "false"}:
+        if target_dtype == "float":
+            raise ValueError("Y/N target encountered with target_dtype='float'")
         return torch.tensor(int(0) - int(label_shift), dtype=torch.long)
     try:
         f = float(s)
     except ValueError:
         return None
+    if target_dtype == "float":
+        return torch.tensor(f - float(label_shift), dtype=torch.float)
     if not f.is_integer():
-        return torch.tensor(f, dtype=torch.float)
+        return None
     return torch.tensor(int(f) - int(label_shift), dtype=torch.long)
 
 
@@ -62,10 +88,32 @@ def read_csv(
 ) -> list[dict]:
     """Read the KnotInfo CSV; return one dict per row containing the columns
     needed downstream (PD notation, target value, knot name).
+
+    Fails loud on missing target/PD columns. Silent failure here was the
+    most damaging bug class in the previous pipeline: a misspelled
+    `target_column` in a sweep override would produce an empty dataset, an
+    Optuna trial completing with garbage, and no visible trace.
     """
     df = pd.read_csv(csv_path)
+    if target not in df.columns:
+        cols_preview = sorted(df.columns)
+        if len(cols_preview) > 30:
+            cols_preview = cols_preview[:30] + ["..."]
+        raise KeyError(
+            f"target column {target!r} not found in {csv_path}. "
+            f"Available columns: {cols_preview}"
+        )
+    if not any(c in df.columns for c in _PD_COLUMN_CANDIDATES):
+        raise KeyError(
+            f"no PD-notation column found in {csv_path}; expected one of "
+            f"{list(_PD_COLUMN_CANDIDATES)}"
+        )
     if limit is not None:
         df = df.head(int(limit))
+    if len(df) == 0:
+        raise ValueError(
+            f"CSV {csv_path} (limit={limit}) yielded zero rows; cannot build dataset"
+        )
     rows: list[dict] = []
     for _, r in df.iterrows():
         d = {k: r[k] for k in df.columns}
@@ -79,8 +127,9 @@ def read_csv(
 def build_pyg_data_from_pd(
     row: dict,
     *,
-    label_shift: int = 0,
+    label_shift: float = 0,
     strict: bool = False,
+    target_dtype: str = "long",
 ) -> Data | None:
     """Parse one CSV row into a `Data`. Returns None on coerce/parse failure
     (drops the row) unless `strict=True`."""
@@ -92,7 +141,11 @@ def build_pyg_data_from_pd(
             raise ValueError(f"missing PD notation for row {row.get('__knot_name')!r}")
         return None
 
-    y = _coerce_label(row.get("__target_raw"), label_shift=label_shift)
+    y = _coerce_label(
+        row.get("__target_raw"),
+        label_shift=label_shift,
+        target_dtype=target_dtype,
+    )
     if y is None:
         if strict:
             raise ValueError(
@@ -108,11 +161,13 @@ def build_pyg_data_from_pd(
             raise
         return None
 
-    return topo.topology_to_pyg_data(
+    data = topo.topology_to_pyg_data(
         y=y,
         knot_name=row.get("__knot_name"),
         pd_notation=str(pd_notation),
     )
+    data.is_augmented = torch.tensor([0], dtype=torch.long)
+    return data
 
 
 class KnotDataset(InMemoryDataset):
@@ -130,19 +185,25 @@ class KnotDataset(InMemoryDataset):
         root: str | Path,
         csv_path: str | Path,
         target_column: str,
-        label_shift: int = 0,
+        label_shift: float = 0,
         limit: int | None = None,
         strict: bool = False,
+        target_dtype: str = "long",
         transform=None,
         pre_transform=None,
         pre_filter=None,
         force_reload: bool = False,
     ) -> None:
+        if target_dtype not in _VALID_TARGET_DTYPES:
+            raise ValueError(
+                f"target_dtype must be one of {_VALID_TARGET_DTYPES}, got {target_dtype!r}"
+            )
         self.csv_path = str(csv_path)
         self.target_column = str(target_column)
-        self.label_shift = int(label_shift)
+        self.label_shift = float(label_shift)
         self.limit = None if limit is None else int(limit)
         self.strict = bool(strict)
+        self.target_dtype = str(target_dtype)
         self._target_slug = _slug(target_column)
         super().__init__(
             root,
@@ -187,7 +248,10 @@ class KnotDataset(InMemoryDataset):
         skipped = 0
         for row in rows:
             d = build_pyg_data_from_pd(
-                row, label_shift=self.label_shift, strict=self.strict
+                row,
+                label_shift=self.label_shift,
+                strict=self.strict,
+                target_dtype=self.target_dtype,
             )
             if d is None:
                 skipped += 1
@@ -199,4 +263,14 @@ class KnotDataset(InMemoryDataset):
             data_list = [self.pre_transform(d) for d in data_list]
         if skipped:
             print(f"[KnotDataset] skipped {skipped}/{len(rows)} rows")
+        if not data_list:
+            raise RuntimeError(
+                f"KnotDataset.process() produced 0 samples for "
+                f"target_column={self.target_column!r}, csv={self.csv_path}, "
+                f"limit={self.limit}, strict={self.strict}. "
+                f"Skipped {skipped}/{len(rows)} rows due to coerce/parse "
+                f"failures, then pre_filter/pre_transform reduced to 0. "
+                f"Refusing to save an empty data.pt; this would silently "
+                f"produce empty splits and meaningless training metrics."
+            )
         self.save(data_list, self.processed_paths[0])

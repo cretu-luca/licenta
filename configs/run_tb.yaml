@@ -20,6 +20,12 @@ train: true
 test: true
 optimized_metric: val/accuracy
 
+# Stratification guard: minimum number of distinct classes that must be
+# present in val and test of each fold (classification only; ignored for
+# regression). 2 catches the binary-task collapse where a fold's val
+# contains zero positives. Set to 1 to bypass.
+min_classes_per_split: 2
+
 paths:
   root: ${oc.env:PWD}
   data_dir: ${paths.root}/data
@@ -33,4 +39,4 @@ hydra:
     dir: outputs/${experiment_name}/${task.name}/${model.name}/seed=${seed}
   sweep:
     dir: outputs/${experiment_name}
-    subdir: ${task.name}/${model.name}/seed=${seed}
+    subdir: ${task.name}/${model.name}/seed=${seed}/trial=${hydra.job.num}
