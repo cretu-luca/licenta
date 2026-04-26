@@ -263,6 +263,21 @@ do_sweep() {
     mkdir -p "${LOGDIR}" "${DBDIR}"
     say "sweep config: tasks=${TASKS[*]} models=${MODELS[*]} n_trials=${N_TRIALS} max_epochs=${MAX_EPOCHS} gpus=${GPUS} (batch_size sampled by sweeper)"
 
+    # Multi-GPU race-fix: round-robin launches put two processes on
+    # different (task, model) pairs simultaneously. With the task-outer
+    # / model-inner ordering below, the first wave is (task[0], gin) on
+    # gpu0 and (task[0], cwn) on gpu1 -- both processes hit the SAME
+    # task and try to build the same `data/knots/<task>/processed/data.pt`
+    # PyG cache concurrently. No file lock; expected outcome is a corrupted
+    # `data.pt` or one process crashing on a half-written file. Building
+    # all per-task caches sequentially up-front collapses parallel access
+    # to read-only, which is safe. Sequential (GPUS<=1) doesn't need this
+    # since only one process exists at a time.
+    if [[ "${GPUS}" -gt 1 ]]; then
+        say "GPUS=${GPUS}: pre-building per-task dataset caches sequentially (avoids concurrent .pt writers)"
+        do_precache
+    fi
+
     # NB: dataset.dataloader_params.batch_size is intentionally NOT
     # passed to scripts/train_tb.py here. The Optuna sweeper samples it
     # per trial from configs/hparams_search/optuna.yaml. A task-side CLI
