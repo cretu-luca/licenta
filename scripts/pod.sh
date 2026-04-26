@@ -282,6 +282,13 @@ do_sweep() {
     # passed to scripts/train_tb.py here. The Optuna sweeper samples it
     # per trial from configs/hparams_search/optuna.yaml. A task-side CLI
     # override would shadow that sample and silently drop the axis.
+    # pin_memory=false: torch 2.3 does NOT implement `aten::_pin_memory`
+    # for the SparseCUDA backend. Graph2CellFaceLifting attaches sparse
+    # incidence matrices to every Data object (CWN consumes them; GIN
+    # carries them); Lightning's DataLoader pin step hits the unimplemented
+    # path and raises NotImplementedError on the first sanity-check batch
+    # of every trial. Throughput cost of disabling pin_memory on RTX 4090
+    # for these tiny graphs is negligible (H2D is not the bottleneck).
     if [[ "${GPUS}" -le 1 ]]; then
         for task in "${TASKS[@]}"; do
             for model in "${MODELS[@]}"; do
@@ -298,7 +305,7 @@ do_sweep() {
                     trainer.max_epochs="${MAX_EPOCHS}" \
                     trainer.enable_progress_bar=false \
                     dataset.dataloader_params.num_workers="${N_WORKERS}" \
-                    dataset.dataloader_params.pin_memory=true \
+                    dataset.dataloader_params.pin_memory=false \
                     2>&1 | tee "${log}"
             done
         done
@@ -321,7 +328,7 @@ do_sweep() {
                     trainer.max_epochs="${MAX_EPOCHS}" \
                     trainer.enable_progress_bar=false \
                     dataset.dataloader_params.num_workers="${N_WORKERS}" \
-                    dataset.dataloader_params.pin_memory=true \
+                    dataset.dataloader_params.pin_memory=false \
                     > "${log}" 2>&1 &
                 i=$(( i + 1 ))
                 # Drain a wave once we've launched one job per GPU.
@@ -372,8 +379,15 @@ for db in sorted(glob.glob(pat)):
         skipped.append(fname); continue
     expp, task, model = parsed
     s = optuna.load_study(study_name=None, storage=f'sqlite:///{db}')
-    if not s.trials or s.best_trial.state.name != 'COMPLETE':
-        skipped.append(fname + ' (no completed trials)'); continue
+    states = {}
+    for t in s.trials:
+        states[t.state.name] = states.get(t.state.name, 0) + 1
+    try:
+        bt = s.best_trial            # Optuna 2.10 raises ValueError if no COMPLETE trial exists
+    except ValueError:
+        skipped.append(f'{fname} (no completed trials; states={states})'); continue
+    if bt.state.name != 'COMPLETE':
+        skipped.append(f'{fname} (best trial state: {bt.state.name}; states={states})'); continue
     rows.append((expp, task, model, s.best_value, s.best_trial.number,
                  len(s.trials), s.best_params))
 if not rows:

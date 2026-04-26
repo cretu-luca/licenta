@@ -295,8 +295,15 @@ for db in sorted(glob.glob(pat)):
         skipped.append(fname); continue
     expp, task, model = parsed
     s = optuna.load_study(study_name=None, storage=f'sqlite:///{db}')
-    if not s.trials or s.best_trial.state.name != 'COMPLETE':
-        skipped.append(fname + ' (no completed trials)'); continue
+    states = {}
+    for t in s.trials:
+        states[t.state.name] = states.get(t.state.name, 0) + 1
+    try:
+        bt = s.best_trial            # Optuna 2.10 raises ValueError if no COMPLETE trial exists
+    except ValueError:
+        skipped.append(f'{fname} (no completed trials; states={states})'); continue
+    if bt.state.name != 'COMPLETE':
+        skipped.append(f'{fname} (best trial state: {bt.state.name}; states={states})'); continue
     rows.append((expp, task, model, s.best_value, s.best_trial.number,
                  len(s.trials), s.best_params))
 if not rows:
