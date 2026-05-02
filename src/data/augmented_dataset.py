@@ -83,11 +83,26 @@ def _fix_pd_notation(pd_notation: str) -> str:
     return pd_notation.replace(";", ",")
 
 
-def _mirror_target(y: torch.Tensor, task_col: str) -> torch.Tensor:
+def _mirror_target(
+    y: torch.Tensor, task_col: str, label_shift: float = 0
+) -> torch.Tensor:
+    """Map a base knot's stored target to the target of its mirror diagram.
+
+    `y` is in *shifted* representation: ``y = y_orig - label_shift`` (see
+    `dataset._coerce_label`). For SIGN_FLIP_TASKS the conceptual operation is
+    ``y_orig -> -y_orig`` in the unshifted space, which in the shifted space
+    becomes ``y_stored -> -y_stored - 2*label_shift``. Forgetting the
+    ``-2*label_shift`` correction silently produces out-of-range targets on
+    every SIGN_FLIP task whose ``min_val != 0`` (signature, rasmussen_s,
+    ozsvath_szabo_tau), tripping `cross_entropy` with a negative class index.
+    """
     if task_col in MIRROR_SAFE_TASKS:
         return y
     if task_col in SIGN_FLIP_TASKS:
-        return (-y).to(y.dtype)
+        if y.dtype.is_floating_point:
+            return (-y - 2 * float(label_shift)).to(y.dtype)
+        new_val = int(-int(y.item()) - 2 * int(label_shift))
+        return torch.tensor(new_val, dtype=y.dtype)
     raise ValueError(f"Unknown mirror behavior for task_col={task_col!r}")
 
 
@@ -188,7 +203,12 @@ class KnotAugmentedDataset(KnotDataset):
                 variants = [(diagram, lambda y: y)]
                 if cfg.include_mirror:
                     variants.append(
-                        (diagram.mirror(), lambda y, c=task_col: _mirror_target(y, c))
+                        (
+                            diagram.mirror(),
+                            lambda y, c=task_col, s=self.label_shift: _mirror_target(
+                                y, c, s
+                            ),
+                        )
                     )
                 for variant_diagram, y_fn in variants:
                     try:
